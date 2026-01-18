@@ -24,6 +24,7 @@ struct DayTimelineView: View {
     @State private var createBlocked = false
     @State private var dragOffsets: [UUID: Int] = [:]
     @State private var resizeOffsets: [UUID: (top: Int, bottom: Int)] = [:]
+    @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
 
     @StateObject private var scrollController = TimelineScrollController()
 
@@ -52,70 +53,79 @@ struct DayTimelineView: View {
 
     var body: some View {
         TimelineScrollView(controller: scrollController, isScrollEnabled: !isScrollLocked) {
-            GeometryReader { geometry in
-                ZStack(alignment: .topLeading) {
-                    VStack(spacing: 0) {
-                        ForEach(0..<24, id: \.self) { hour in
-                            TimelineHourRow(hour: hour)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    ForEach(0..<24, id: \.self) { hour in
+                        TimelineHourRow(hour: hour)
+                    }
+                }
+
+                ForEach(layoutItems) { item in
+                    EventBlock(
+                        event: item.event,
+                        frame: item.frame,
+                        isSelected: selectedEventID == item.event.id,
+                        color: Color(hex: item.event.colorHex),
+                        showsTime: item.showsTime,
+                        onTap: { handleTap(event: item.event) },
+                        onLongPress: { selectedEventID = item.event.id },
+                        onDragChanged: { translation in
+                            handleDragChanged(event: item.event, translation: translation, locationY: item.frame.minY + translation)
+                        },
+                        onDragEnded: { translation in
+                            handleDragEnded(event: item.event, translation: translation)
+                        },
+                        onResizeChanged: { handle, translation in
+                            handleResizeChanged(event: item.event, handle: handle, translation: translation, anchorY: item.frame.minY)
+                        },
+                        onResizeEnded: { handle, translation in
+                            handleResizeEnded(event: item.event, handle: handle, translation: translation)
                         }
-                    }
-
-                    ForEach(layoutItems) { item in
-                        EventBlock(
-                            event: item.event,
-                            frame: item.frame,
-                            isSelected: selectedEventID == item.event.id,
-                            color: Color(hex: item.event.colorHex),
-                            showsTime: item.showsTime,
-                            onTap: { handleTap(event: item.event) },
-                            onLongPress: { selectedEventID = item.event.id },
-                            onDragChanged: { translation in
-                                handleDragChanged(event: item.event, translation: translation, locationY: item.frame.minY + translation)
-                            },
-                            onDragEnded: { translation in
-                                handleDragEnded(event: item.event, translation: translation)
-                            },
-                            onResizeChanged: { handle, translation in
-                                handleResizeChanged(event: item.event, handle: handle, translation: translation, anchorY: item.frame.minY)
-                            },
-                            onResizeEnded: { handle, translation in
-                                handleResizeEnded(event: item.event, handle: handle, translation: translation)
-                            }
-                        )
-                    }
-
-                    if let ghostRect {
-                        GhostEventBlock(rect: ghostRect)
-                    }
-
-                    NowLine(day: day)
-
-                    if showDebugOverlay {
-                        DebugOverlayView(text: "Events: \(events.count)  Selected: \(selectedEventID?.uuidString.prefix(4) ?? "nil")")
-                            .offset(x: 16, y: 12)
-                    }
+                    )
                 }
-                .frame(height: CalendarConstants.hourHeight * 24)
-                .coordinateSpace(name: "timeline")
-                .contentShape(Rectangle())
-                .gesture(backgroundTapGesture)
-                .gesture(createGesture(in: geometry))
-                .onAppear {
+
+                if let ghostRect {
+                    GhostEventBlock(rect: ghostRect)
+                }
+
+                NowLine(day: day)
+
+                if showDebugOverlay {
+                    DebugOverlayView(text: "Events: \(events.count)  Selected: \(selectedEventID?.uuidString.prefix(4) ?? "nil")")
+                        .offset(x: 16, y: 12)
+                }
+            }
+            .frame(height: CalendarConstants.hourHeight * 24)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            contentWidth = proxy.size.width
+                        }
+                        .onChange(of: proxy.size.width) { _, newValue in
+                            contentWidth = newValue
+                        }
+                }
+            )
+            .coordinateSpace(name: "timeline")
+            .contentShape(Rectangle())
+            .simultaneousGesture(backgroundTapGesture)
+            .simultaneousGesture(createGesture())
+            .onAppear {
+                scrollToInitialPosition()
+            }
+            .onChange(of: day) { _, _ in
+                scrollToInitialPosition()
+            }
+            .onChange(of: scrollToTodayTrigger) { _, _ in
+                if calendar.isDateInToday(day) {
                     scrollToInitialPosition()
                 }
-                .onChange(of: day) { _, _ in
-                    scrollToInitialPosition()
-                }
-                .onChange(of: scrollToTodayTrigger) { _, _ in
-                    if calendar.isDateInToday(day) {
-                        scrollToInitialPosition()
-                    }
-                }
-                .onChange(of: events) { _, newEvents in
-                    if let selectedID = selectedEventID, !newEvents.contains(where: { $0.id == selectedID }) {
-                        selectedEventID = nil
-                        showEditor = false
-                    }
+            }
+            .onChange(of: events) { _, newEvents in
+                if let selectedID = selectedEventID, !newEvents.contains(where: { $0.id == selectedID }) {
+                    selectedEventID = nil
+                    showEditor = false
                 }
             }
         }
@@ -152,7 +162,7 @@ struct DayTimelineView: View {
         }
     }
 
-    private func createGesture(in geometry: GeometryProxy) -> some Gesture {
+    private func createGesture() -> some Gesture {
         LongPressGesture(minimumDuration: 0.3)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("timeline")))
             .onChanged { value in
@@ -168,7 +178,7 @@ struct DayTimelineView: View {
                         }
                         createStartY = drag.startLocation.y
                     }
-                    updateGhost(from: drag.startLocation.y, to: drag.location.y, width: geometry.size.width)
+                    updateGhost(from: drag.startLocation.y, to: drag.location.y, width: contentWidth)
                     updateAutoScroll(locationY: drag.location.y)
                 default:
                     break
