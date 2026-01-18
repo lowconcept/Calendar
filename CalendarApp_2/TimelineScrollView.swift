@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import Combine
 
 final class TimelineScrollController: ObservableObject {
     fileprivate weak var scrollView: UIScrollView?
