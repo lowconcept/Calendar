@@ -22,10 +22,10 @@ extension Calendar {
 
 extension Date {
     var weekdayDisplay: String {
-        formatted(.dateTime.weekday(.wide))
+        formatted(Date.FormatStyle().weekday(.wide))
     }
 
     var longDateDisplay: String {
-        formatted(.dateTime.day().month(.wide).year())
+        formatted(Date.FormatStyle().day().month(.wide).year())
     }
 }
