@@ -21,6 +21,7 @@ struct DayTimelineView: View {
     @State private var ghostRect: CGRect?
     @State private var createStartY: CGFloat?
     @State private var createBlocked = false
+    @State private var isCreating = false
     @State private var dragOffsets: [UUID: Int] = [:]
     @State private var resizeOffsets: [UUID: (top: Int, bottom: Int)] = [:]
     @State private var contentWidth: CGFloat = 0
@@ -109,6 +110,7 @@ struct DayTimelineView: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(backgroundTapGesture)
                 .simultaneousGesture(createGesture())
+                .simultaneousGesture(createDragGesture())
                 .onAppear {
                     scrollToInitialPosition(proxy: proxy)
                 }
@@ -162,35 +164,38 @@ struct DayTimelineView: View {
     }
 
     private func createGesture() -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("timeline")))
+        LongPressGesture(minimumDuration: 0.25)
+            .onEnded { _ in
+                isCreating = true
+            }
+    }
+
+    private func createDragGesture() -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("timeline"))
             .onChanged { value in
-                switch value {
-                case .second(true, let drag?):
-                    if createBlocked {
+                guard isCreating else { return }
+                if createStartY == nil {
+                    if isPointOnEvent(value.startLocation) {
+                        createBlocked = true
+                        isCreating = false
                         return
                     }
-                    if createStartY == nil {
-                        if isPointOnEvent(drag.startLocation) {
-                            createBlocked = true
-                            return
-                        }
-                        createStartY = drag.startLocation.y
-                    }
-                    updateGhost(from: drag.startLocation.y, to: drag.location.y, width: contentWidth)
-                default:
-                    break
+                    createStartY = value.startLocation.y
                 }
+                if createBlocked {
+                    return
+                }
+                updateGhost(from: value.startLocation.y, to: value.location.y, width: contentWidth)
             }
             .onEnded { value in
                 defer {
                     createStartY = nil
                     createBlocked = false
                     ghostRect = nil
+                    isCreating = false
                 }
-                guard case .second(true, let drag?) = value else { return }
-                guard !createBlocked, !isPointOnEvent(drag.startLocation) else { return }
-                createEvent(from: drag.startLocation.y, to: drag.location.y)
+                guard isCreating, !createBlocked else { return }
+                createEvent(from: value.startLocation.y, to: value.location.y)
             }
     }
 
