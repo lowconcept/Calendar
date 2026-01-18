@@ -12,7 +12,7 @@ import SwiftData
 struct CalendarApp_2App: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            CalendarEvent.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -25,7 +25,7 @@ struct CalendarApp_2App: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            DayPagerView()
         }
         .modelContainer(sharedModelContainer)
     }
