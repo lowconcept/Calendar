@@ -31,8 +31,8 @@ struct DebugHUD: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("activeID: \(activeID?.uuidString.prefix(6) ?? \"nil\")")
-            Text("interacting: \(isInteracting ? \"1\" : \"0\")   creating: \(isCreating ? \"1\" : \"0\")")
+            Text("activeID: \(activeID?.uuidString.prefix(6) ?? "nil")")
+            Text("interacting: \(isInteracting ? "1" : "0")   creating: \(isCreating ? "1" : "0")")
             Text(String(format: "scrollY: %.0f", scrollOffsetY))
             Text("events: \(eventCount)")
         }
@@ -48,4 +48,4 @@ struct DebugHUD: View {
         .padding(12)
     }
 }
-#endif  DEBUG
+#endif
