@@ -59,15 +59,14 @@ struct EventBlock: View {
         .frame(width: frame.width, height: frame.height)
         .offset(x: frame.minX, y: frame.minY)
         .contentShape(Rectangle())
-        .highPriorityGesture(
-            TapGesture()
-                .onEnded { onTap() }
-        )
+        .onTapGesture {
+            onTap()
+        }
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.3)
                 .onEnded { _ in onLongPress() }
         )
-        .simultaneousGesture(
+        .highPriorityGesture(
             DragGesture(minimumDistance: 1)
                 .onChanged { value in onDragChanged(value.translation.height) }
                 .onEnded { value in onDragEnded(value.translation.height) }
@@ -102,4 +101,3 @@ struct ResizeHandleView: View {
             .frame(maxHeight: .infinity, alignment: position == .top ? .top : .bottom)
     }
 }
-

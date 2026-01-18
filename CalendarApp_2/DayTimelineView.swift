@@ -18,15 +18,12 @@ struct DayTimelineView: View {
 
     @State private var selectedEventID: UUID?
     @State private var showEditor = false
-    @State private var isScrollLocked = false
     @State private var ghostRect: CGRect?
     @State private var createStartY: CGFloat?
     @State private var createBlocked = false
     @State private var dragOffsets: [UUID: Int] = [:]
     @State private var resizeOffsets: [UUID: (top: Int, bottom: Int)] = [:]
     @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
-
-    @StateObject private var scrollController = TimelineScrollController()
 
     private let calendar = Calendar.current
     private let colorPresets: [ColorPreset] = [
@@ -52,80 +49,82 @@ struct DayTimelineView: View {
     }
 
     var body: some View {
-        TimelineScrollView(controller: scrollController, isScrollEnabled: !isScrollLocked) {
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: 0) {
-                    ForEach(0..<24, id: \.self) { hour in
-                        TimelineHourRow(hour: hour)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: 0) {
+                        ForEach(0..<24, id: \.self) { hour in
+                            TimelineHourRow(hour: hour)
+                        }
+                    }
+
+                    ForEach(layoutItems) { item in
+                        EventBlock(
+                            event: item.event,
+                            frame: item.frame,
+                            isSelected: selectedEventID == item.event.id,
+                            color: Color(hex: item.event.colorHex),
+                            showsTime: item.showsTime,
+                            onTap: { handleTap(event: item.event) },
+                            onLongPress: { selectedEventID = item.event.id },
+                            onDragChanged: { translation in
+                                handleDragChanged(event: item.event, translation: translation)
+                            },
+                            onDragEnded: { translation in
+                                handleDragEnded(event: item.event, translation: translation)
+                            },
+                            onResizeChanged: { handle, translation in
+                                handleResizeChanged(event: item.event, handle: handle, translation: translation)
+                            },
+                            onResizeEnded: { handle, translation in
+                                handleResizeEnded(event: item.event, handle: handle, translation: translation)
+                            }
+                        )
+                    }
+
+                    if let ghostRect {
+                        GhostEventBlock(rect: ghostRect)
+                    }
+
+                    NowLine(day: day)
+
+                    if showDebugOverlay {
+                        DebugOverlayView(text: "Events: \(events.count)  Selected: \(selectedEventID?.uuidString.prefix(4) ?? "nil")")
+                            .offset(x: 16, y: 12)
                     }
                 }
-
-                ForEach(layoutItems) { item in
-                    EventBlock(
-                        event: item.event,
-                        frame: item.frame,
-                        isSelected: selectedEventID == item.event.id,
-                        color: Color(hex: item.event.colorHex),
-                        showsTime: item.showsTime,
-                        onTap: { handleTap(event: item.event) },
-                        onLongPress: { selectedEventID = item.event.id },
-                        onDragChanged: { translation in
-                            handleDragChanged(event: item.event, translation: translation, locationY: item.frame.minY + translation)
-                        },
-                        onDragEnded: { translation in
-                            handleDragEnded(event: item.event, translation: translation)
-                        },
-                        onResizeChanged: { handle, translation in
-                            handleResizeChanged(event: item.event, handle: handle, translation: translation, anchorY: item.frame.minY)
-                        },
-                        onResizeEnded: { handle, translation in
-                            handleResizeEnded(event: item.event, handle: handle, translation: translation)
-                        }
-                    )
+                .frame(height: CalendarConstants.hourHeight * 24)
+                .background(
+                    GeometryReader { proxyGeo in
+                        Color.clear
+                            .onAppear {
+                                contentWidth = proxyGeo.size.width
+                            }
+                            .onChange(of: proxyGeo.size.width) { _, newValue in
+                                contentWidth = newValue
+                            }
+                    }
+                )
+                .coordinateSpace(name: "timeline")
+                .contentShape(Rectangle())
+                .simultaneousGesture(backgroundTapGesture)
+                .simultaneousGesture(createGesture())
+                .onAppear {
+                    scrollToInitialPosition(proxy: proxy)
                 }
-
-                if let ghostRect {
-                    GhostEventBlock(rect: ghostRect)
+                .onChange(of: day) { _, _ in
+                    scrollToInitialPosition(proxy: proxy)
                 }
-
-                NowLine(day: day)
-
-                if showDebugOverlay {
-                    DebugOverlayView(text: "Events: \(events.count)  Selected: \(selectedEventID?.uuidString.prefix(4) ?? "nil")")
-                        .offset(x: 16, y: 12)
+                .onChange(of: scrollToTodayTrigger) { _, _ in
+                    if calendar.isDateInToday(day) {
+                        scrollToInitialPosition(proxy: proxy)
+                    }
                 }
-            }
-            .frame(height: CalendarConstants.hourHeight * 24)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            contentWidth = proxy.size.width
-                        }
-                        .onChange(of: proxy.size.width) { _, newValue in
-                            contentWidth = newValue
-                        }
-                }
-            )
-            .coordinateSpace(name: "timeline")
-            .contentShape(Rectangle())
-            .simultaneousGesture(backgroundTapGesture)
-            .simultaneousGesture(createGesture())
-            .onAppear {
-                scrollToInitialPosition()
-            }
-            .onChange(of: day) { _, _ in
-                scrollToInitialPosition()
-            }
-            .onChange(of: scrollToTodayTrigger) { _, _ in
-                if calendar.isDateInToday(day) {
-                    scrollToInitialPosition()
-                }
-            }
-            .onChange(of: events) { _, newEvents in
-                if let selectedID = selectedEventID, !newEvents.contains(where: { $0.id == selectedID }) {
-                    selectedEventID = nil
-                    showEditor = false
+                .onChange(of: events) { _, newEvents in
+                    if let selectedID = selectedEventID, !newEvents.contains(where: { $0.id == selectedID }) {
+                        selectedEventID = nil
+                        showEditor = false
+                    }
                 }
             }
         }
@@ -145,7 +144,7 @@ struct DayTimelineView: View {
             let end = calendar.date(byAdding: .minute, value: dragOffset + offsets.bottom, to: event.end) ?? event.end
             return EventLayoutData(event: event, start: start, end: max(end, start.addingTimeInterval(60 * Double(CalendarConstants.minEventMinutes))))
         }
-        return layoutEvents(adjusted)
+        return layoutEvents(adjusted, contentWidth: contentWidth)
     }
 
     private func handleTap(event: CalendarEventEntity) {
@@ -179,7 +178,6 @@ struct DayTimelineView: View {
                         createStartY = drag.startLocation.y
                     }
                     updateGhost(from: drag.startLocation.y, to: drag.location.y, width: contentWidth)
-                    updateAutoScroll(locationY: drag.location.y)
                 default:
                     break
                 }
@@ -189,8 +187,6 @@ struct DayTimelineView: View {
                     createStartY = nil
                     createBlocked = false
                     ghostRect = nil
-                    scrollController.stopAutoScroll()
-                    isScrollLocked = false
                 }
                 guard case .second(true, let drag?) = value else { return }
                 guard !createBlocked, !isPointOnEvent(drag.startLocation) else { return }
@@ -198,25 +194,20 @@ struct DayTimelineView: View {
             }
     }
 
-    private func handleDragChanged(event: CalendarEventEntity, translation: CGFloat, locationY: CGFloat) {
-        isScrollLocked = true
+    private func handleDragChanged(event: CalendarEventEntity, translation: CGFloat) {
         let minutes = snapMinutes(minutesFromOffset(translation))
         dragOffsets[event.id] = minutes
-        updateAutoScroll(locationY: locationY)
     }
 
     private func handleDragEnded(event: CalendarEventEntity, translation: CGFloat) {
         let minutes = snapMinutes(minutesFromOffset(translation))
         dragOffsets[event.id] = nil
-        isScrollLocked = false
-        scrollController.stopAutoScroll()
         let (newStart, newEnd) = shiftedTimes(for: event, by: minutes)
         event.start = newStart
         event.end = newEnd
     }
 
-    private func handleResizeChanged(event: CalendarEventEntity, handle: ResizeHandle, translation: CGFloat, anchorY: CGFloat) {
-        isScrollLocked = true
+    private func handleResizeChanged(event: CalendarEventEntity, handle: ResizeHandle, translation: CGFloat) {
         let minutes = snapMinutes(minutesFromOffset(translation))
         var offsets = resizeOffsets[event.id] ?? (top: 0, bottom: 0)
         switch handle {
@@ -226,14 +217,11 @@ struct DayTimelineView: View {
             offsets.bottom = minutes
         }
         resizeOffsets[event.id] = offsets
-        updateAutoScroll(locationY: anchorY + translation)
     }
 
     private func handleResizeEnded(event: CalendarEventEntity, handle: ResizeHandle, translation: CGFloat) {
         let minutes = snapMinutes(minutesFromOffset(translation))
         resizeOffsets[event.id] = nil
-        isScrollLocked = false
-        scrollController.stopAutoScroll()
 
         switch handle {
         case .top:
@@ -249,7 +237,6 @@ struct DayTimelineView: View {
     }
 
     private func updateGhost(from start: CGFloat, to end: CGFloat, width: CGFloat) {
-        isScrollLocked = true
         let minY = min(start, end)
         let maxY = max(start, end)
         let height = max(maxY - minY, CalendarConstants.minuteHeight * CGFloat(CalendarConstants.minEventMinutes))
@@ -290,20 +277,7 @@ struct DayTimelineView: View {
         layoutItems.contains { $0.frame.contains(point) }
     }
 
-    private func updateAutoScroll(locationY: CGFloat) {
-        let visibleHeight = scrollController.visibleHeight
-        guard visibleHeight > 0 else { return }
-        let hotZone: CGFloat = 60
-        if locationY < hotZone {
-            scrollController.startAutoScroll(direction: -1)
-        } else if locationY > visibleHeight - hotZone {
-            scrollController.startAutoScroll(direction: 1)
-        } else {
-            scrollController.stopAutoScroll()
-        }
-    }
-
-    private func scrollToInitialPosition() {
+    private func scrollToInitialPosition(proxy: ScrollViewProxy) {
         let targetMinutes: Int
         if calendar.isDateInToday(day) {
             let now = Date()
@@ -312,7 +286,9 @@ struct DayTimelineView: View {
         } else {
             targetMinutes = 8 * 60
         }
-        scrollController.scrollTo(y: CGFloat(targetMinutes) * CalendarConstants.minuteHeight, animated: false)
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(targetMinutes, anchor: .top)
+        }
     }
 
     private func dateBySetting(minutes: Int) -> Date {
@@ -347,7 +323,7 @@ struct EventLayoutItem: Identifiable {
     let showsTime: Bool
 }
 
-private func layoutEvents(_ events: [EventLayoutData]) -> [EventLayoutItem] {
+private func layoutEvents(_ events: [EventLayoutData], contentWidth: CGFloat) -> [EventLayoutItem] {
     let sorted = events.sorted { $0.start < $1.start }
     var groups: [[EventLayoutData]] = []
     var currentGroup: [EventLayoutData] = []
@@ -383,7 +359,8 @@ private func layoutEvents(_ events: [EventLayoutData]) -> [EventLayoutItem] {
             }
         }
         let columnCount = max(columns.count, 1)
-        let columnWidth = (UIScreen.main.bounds.width - CalendarConstants.timelinePaddingLeading - 24) / CGFloat(columnCount)
+        let availableWidth = max(contentWidth - CalendarConstants.timelinePaddingLeading - 24, 120)
+        let columnWidth = availableWidth / CGFloat(columnCount)
 
         for (columnIndex, column) in columns.enumerated() {
             for event in column {
@@ -421,6 +398,6 @@ struct TimelineHourRow: View {
                 .padding(.top, 6)
         }
         .frame(height: CalendarConstants.hourHeight)
-        .id(hour)
+        .id(hour * 60)
     }
 }
