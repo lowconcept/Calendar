@@ -23,7 +23,7 @@ struct DayTimelineView: View {
     @State private var createBlocked = false
     @State private var dragOffsets: [UUID: Int] = [:]
     @State private var resizeOffsets: [UUID: (top: Int, bottom: Int)] = [:]
-    @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
+    @State private var contentWidth: CGFloat = 0
 
     private let calendar = Calendar.current
     private let colorPresets: [ColorPreset] = [
@@ -359,7 +359,8 @@ private func layoutEvents(_ events: [EventLayoutData], contentWidth: CGFloat) ->
             }
         }
         let columnCount = max(columns.count, 1)
-        let availableWidth = max(contentWidth - CalendarConstants.timelinePaddingLeading - 24, 120)
+        let resolvedWidth = contentWidth > 0 ? contentWidth : 360
+        let availableWidth = max(resolvedWidth - CalendarConstants.timelinePaddingLeading - 24, 120)
         let columnWidth = availableWidth / CGFloat(columnCount)
 
         for (columnIndex, column) in columns.enumerated() {
